@@ -11,13 +11,13 @@
 struct WordReference {
   unsigned count;
 };
-using WordReferenceMap = std::map<std::string, WordReference>;
+using WordReferenceMap = std::map<std::wstring, WordReference>;
 
 struct WordMapEntry {
   WordReferenceMap refs;
   unsigned refSum;
 };
-using WordMap = std::map<std::string, WordMapEntry>;
+using WordMap = std::map<std::wstring, WordMapEntry>;
 
 enum CharType {
   Space
@@ -26,10 +26,10 @@ enum CharType {
 , Special
 };
 
-CharType GetCharType(char c) {
+CharType GetCharType(wchar_t c) {
   if(std::isspace(c)) {
     return Space;
-  } else if(std::isalpha(c)) {
+  } else if(std::isalpha(c, std::locale())) {
     return Letter;
   } else if(std::isalnum(c)) {
     return Number;
@@ -38,13 +38,13 @@ CharType GetCharType(char c) {
   }
 }
 
-void TrainFromLine(WordMap &wordMap, std::string const &line) {
+void TrainFromLine(WordMap &wordMap, std::wstring const &line) {
   if(line.empty()) {
     return;
   }
 
-  wordMap["\n"];
-  std::string lastToken = "\n";
+  wordMap[L"\n"];
+  std::wstring lastToken = L"\n";
   size_t tokenStart = 0;
   auto lastCharType = GetCharType(line.at(0));
   for(size_t pos = 1; pos < line.length(); ++pos) {
@@ -73,12 +73,12 @@ void TrainFromLine(WordMap &wordMap, std::string const &line) {
 }
 
 void TrainFrom(WordMap &wordMap, char const *arg) {
-  std::ifstream ifs(arg);
+  std::wifstream ifs(arg);
   if(!ifs.is_open()) {
     throw std::runtime_error("Failed to open " + std::string(arg));
   }
 
-  std::string line;
+  std::wstring line;
   while(std::getline(ifs, line)) {
     TrainFromLine(wordMap, line);
   }
@@ -100,17 +100,17 @@ unsigned TrainFinalize(WordMap &wordMap) {
 
 void DumpWordMap(WordMap const &wordMap) {
   for(auto &&wordMapPair : wordMap) {
-    std::cout << wordMapPair.first << ": ";
+    std::wcout << wordMapPair.first << ": ";
     for(auto &&wordReferenceMapPair : wordMapPair.second.refs) {
-      std::cout << wordReferenceMapPair.first
+      std::wcout << wordReferenceMapPair.first
         << " (" << wordReferenceMapPair.second.count << ") ";
     }
-    std::cout << '\n';
+    std::wcout << '\n';
   }
 }
 
-std::string Forge(unsigned wordCount, WordMap const &wordMap) {
-  return "";
+std::wstring Forge(unsigned wordCount, WordMap const &wordMap) {
+  return L"";
 }
 
 void Exit(int) {
@@ -124,6 +124,9 @@ int main(int argc, char **argv) {
     return EXIT_FAILURE;
   }
 
+  // set global locale
+  std::locale::global(std::locale("de_DE.UTF-8"));
+
   if(argc < 2) {
     return EXIT_FAILURE;
   } else {
@@ -136,21 +139,21 @@ int main(int argc, char **argv) {
 #ifdef DEBUG_TRAINING
     DumpWordMap(wordMap);
 #endif
-    std::cout << "Trained word map with "
+    std::wcout << "Trained word map with "
       << wordMap.size() << " entries with "
       << refCountSum << " references\n\n";
 
     // forge iterations based on user input
     for(;;) {
       int wordCount;
-      std::cout << "How many words to generate? - ";
+      std::wcout << "How many words to generate? - ";
       if(!(std::cin >> wordCount) ||
          (wordCount < 0)) {
-        std::cout << "Invalid input\n\n";
+        std::wcout << "Invalid input\n\n";
       } else if(wordCount == 0) {
         break;
       } else {
-        std::cout << '\n' << Forge(static_cast<unsigned>(wordCount), wordMap) << "\n\n";
+        std::wcout << '\n' << Forge(static_cast<unsigned>(wordCount), wordMap) << "\n\n";
       }
     }
 
