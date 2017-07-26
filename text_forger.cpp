@@ -5,6 +5,7 @@
 #include <stdexcept>
 #include <cctype>
 #include <numeric>
+#include <random>
 
 #define DEBUG_TRAINING
 
@@ -25,6 +26,9 @@ enum CharType {
 , Number
 , Special
 };
+
+// globally used random generator
+std::default_random_engine generator;
 
 CharType GetCharType(wchar_t c) {
   if(std::isspace(c)) {
@@ -109,8 +113,47 @@ void DumpWordMap(WordMap const &wordMap) {
   }
 }
 
+std::wstring GetRandomReference(WordMapEntry const &wordMapEntry) {
+  if(wordMapEntry.refSum == 0) {
+    return L"\n";
+  } else {
+    std::uniform_int_distribution<unsigned> distribution(0, wordMapEntry.refSum - 1);
+    auto const random = distribution(generator);
+
+    unsigned cdf = 0;
+    for(auto &&ref : wordMapEntry.refs) {
+      cdf += ref.second.count;
+      if(random < cdf)
+      {
+        return ref.first;
+      }
+    }
+    throw std::runtime_error("Invalid random " + std::to_string(random) +
+      " of " + std::to_string(wordMapEntry.refSum));
+  }
+}
+
+std::wstring GetInitialToken(WordMap const &wordMap) {
+  if(wordMap.count(L"\n")) {
+    return GetRandomReference(wordMap.at(L"\n"));
+  } else {
+    std::uniform_int_distribution<size_t> distribution(0, wordMap.size());
+    return (std::next(std::begin(wordMap), distribution(generator)))->first;
+  }
+}
+
 std::wstring Forge(unsigned wordCount, WordMap const &wordMap) {
-  return L"";
+  std::wstring ret = L"";
+
+  auto token = GetInitialToken(wordMap);
+  while(wordCount > 0)
+  {
+    token = GetRandomReference(wordMap.at(token));
+    ret += L" " + token;
+    --wordCount;
+  }
+
+  return ret;
 }
 
 void Exit(int) {
