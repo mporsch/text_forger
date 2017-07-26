@@ -150,6 +150,8 @@ int main(int argc, char **argv) {
       if(!(std::cin >> wordCount) ||
          (wordCount < 0)) {
         std::wcout << "Invalid input\n\n";
+        std::cin.clear();
+        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
       } else if(wordCount == 0) {
         break;
       } else {
