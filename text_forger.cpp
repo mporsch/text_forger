@@ -2,6 +2,7 @@
 #include <iostream>
 #include <iterator>
 #include <map>
+#include <deque>
 #include <fstream>
 #include <stdexcept>
 #include <cctype>
@@ -45,22 +46,16 @@ CharType GetCharType(wchar_t c) {
 }
 
 void TrainFromFile(WordMap &wordMap, std::wistream &is) {
-  std::vector<std::wstring> tokens(4, L"\n");
+  std::deque<std::wstring> tokens;
   auto insertAndReference = [&](std::wstring const &token) {
-    if(!token.empty()) {
-      // insert into word map
-      wordMap[token];
+    // insert into word map
+    wordMap[token];
 
-      // rotate and insert into ring of previous words
-      std::rotate(std::begin(tokens), std::next(std::begin(tokens)), std::end(tokens));
-      tokens[tokens.size() - 1] = token;
-
-      // increase reference count in previous words
-      auto prev = std::begin(tokens);
-      for(auto curr = std::next(std::begin(tokens)); curr != std::end(tokens); ++curr) {
-        ++wordMap.at(*prev).refs[*curr].count;
-        prev = curr;
-      }
+    // increase reference count in previous words
+    auto prev = std::begin(tokens);
+    for(auto curr = std::next(std::begin(tokens)); curr != std::end(tokens); ++curr) {
+      ++wordMap.at(*prev).refs[*curr].count;
+      prev = curr;
     }
   };
 
@@ -71,9 +66,16 @@ void TrainFromFile(WordMap &wordMap, std::wistream &is) {
 
     auto const charType = GetCharType(*it);
     if(charType != lastCharType) {
-      insertAndReference(token);
-      token.clear();
+      if(!token.empty()) {
+        // rotate and insert into ring of previous words
+        if(tokens.size() >= 2) {
+          tokens.pop_front();
+        }
+        tokens.push_back(token);
 
+        insertAndReference(token);
+        token.clear();
+      }
       lastCharType = charType;
     }
 
@@ -81,7 +83,10 @@ void TrainFromFile(WordMap &wordMap, std::wistream &is) {
       token += *it;
     }
   }
-  insertAndReference(token);
+  while(tokens.size() > 1) {
+    tokens.pop_front();
+    insertAndReference(token);
+  }
 }
 
 void TrainFrom(WordMap &wordMap, char const *arg) {
