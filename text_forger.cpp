@@ -54,8 +54,9 @@ private:
   };
   using MarkovStates = std::map<Tokens, Entry>;
 
-  MarkovStates states;
-  mutable std::default_random_engine generator;
+  Forger(MarkovStates states)
+    : states(std::move(states)) {
+  }
 
   Tokens first() const {
     using Diff = Forger::MarkovStates::difference_type;
@@ -107,6 +108,9 @@ private:
       + std::to_string(random)
       + " of " + std::to_string(state->second.refSum));
   }
+
+  MarkovStates states;
+  mutable std::default_random_engine generator;
 };
 
 struct Builder {
@@ -125,9 +129,9 @@ struct Builder {
       // the final window element serves as reference to the next markov state
       auto&& value = *back;
 
-      auto state = storage.states.find(keys);
-      if(state == end(storage.states)) {
-        state = storage.states.emplace(keys, Forger::Entry()).first;
+      auto state = states.find(keys);
+      if(state == end(states)) {
+        state = states.emplace(keys, Forger::Entry()).first;
       }
 
       // insert reference / increment reference count
@@ -138,8 +142,8 @@ struct Builder {
   Forger get() {
     finalize();
 
-    auto ret = std::move(storage);
-    storage = Forger();
+    auto ret = Forger(std::move(states));
+    states = Forger::MarkovStates();
     return ret;
   }
 
@@ -203,7 +207,7 @@ private:
 
   void dump() const {
     std::cout << "Trained markov process:\n";
-    for(auto&& state : storage.states) {
+    for(auto&& state : states) {
       for(auto&& t : state.first) {
         std::wcout << L" " << t;
       }
@@ -218,7 +222,7 @@ private:
 
   void finalize() {
     unsigned overall = 0;
-    for(auto&& p : storage.states) {
+    for(auto&& p : states) {
       auto refSum = std::accumulate(
         begin(p.second.refs), end(p.second.refs), unsigned(0),
         [](unsigned sum, const Forger::Entry::References::value_type& p) -> unsigned {
@@ -233,11 +237,11 @@ private:
 #endif
 
     std::cout << "Trained with "
-      << storage.states.size() << " states with "
+      << states.size() << " states with "
       << overall << " references\n\n";
   }
 
-  Forger storage;
+  Forger::MarkovStates states;
 };
 
 int main(int argc, char** argv) {
