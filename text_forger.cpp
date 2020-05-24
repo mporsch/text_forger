@@ -26,7 +26,8 @@ struct Forger {
       tokens.insert(end(tokens), begin(ts), end(ts));
 
       // subsequently add only the follow-up state token
-      for(; tokens.size() < count; ts = next(ts)) {
+      while(tokens.size() < count) {
+        ts = next(ts);
         tokens.push_back(ts.back());
       }
     }
