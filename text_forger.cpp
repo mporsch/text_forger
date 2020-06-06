@@ -12,26 +12,17 @@
 //#define DEBUG_TOKENIZE
 //#define DEBUG_TRAINING
 
+// a higher chain order causes more coherent output,
+// but reduces variation
 static const unsigned markovChainOrder = 2;
 
 struct Forger {
   friend struct Builder;
 
   std::wstring generate(size_t count) const {
-    Tokens tokens;
-    tokens.reserve(count);
-    {
-      // initially add order+1 tokens
-      auto ts = first();
-      tokens.insert(end(tokens), begin(ts), end(ts));
+    auto tokens = collect(count);
 
-      // subsequently add only the follow-up state token
-      while(tokens.size() < count) {
-        ts = next(ts);
-        tokens.push_back(ts.back());
-      }
-    }
-
+    // concatenate tokens separated by space
     return std::accumulate(
       begin(tokens), end(tokens), std::wstring(),
       [](std::wstring str, const std::wstring& t) -> std::wstring {
@@ -45,12 +36,12 @@ private:
 
   struct Entry {
     struct Reference {
-      unsigned count;
+      unsigned count; ///< number of times this follow-up has been found in training data
     };
     using References = std::map<Token, Reference>;
 
-    References refs;
-    unsigned refSum;
+    References refs; ///< possible follow-ups of this state
+    unsigned refSum; ///< sum of follow-up occurrence counts for CDF
   };
   using MarkovStates = std::map<Tokens, Entry>;
 
@@ -58,18 +49,36 @@ private:
     : states(std::move(states)) {
   }
 
+  Tokens collect(size_t count) const {
+    Tokens tokens;
+    tokens.reserve(count);
+
+    // initially add order+1 tokens
+    auto ts = first();
+    tokens.insert(end(tokens), begin(ts), end(ts));
+
+    // subsequently add only the follow-up state token
+    while(tokens.size() < count) {
+      ts = next(ts);
+      tokens.push_back(ts.back());
+    }
+
+    return tokens;
+  }
+
   Tokens first() const {
     using Diff = Forger::MarkovStates::difference_type;
+
+    // select a start state at random
     std::uniform_int_distribution<Diff> distribution(
       static_cast<Diff>(0),
       static_cast<Diff>(states.size()) - 1);
-
-    // select a start state at random
     auto state = std::next(begin(states), distribution(generator));
-
     auto tokens = state->first;
+
     // add a random follow-up state token
-    tokens.push_back(randomReference(state));
+    tokens.push_back(followUp(state));
+
     return tokens;
   }
 
@@ -80,7 +89,7 @@ private:
 
     if(state != end(states)) {
       // add a random follow-up state token
-      keys.push_back(randomReference(state));
+      keys.push_back(followUp(state));
       return keys;
     } else {
       // these were the final words of an input -> start again fresh
@@ -88,14 +97,14 @@ private:
     }
   }
 
-  Token randomReference(MarkovStates::const_iterator state) const {
+  Token followUp(MarkovStates::const_iterator state) const {
     std::uniform_int_distribution<unsigned> distribution(
       static_cast<unsigned>(0),
       static_cast<unsigned>(state->second.refSum - 1));
-
     auto random = distribution(generator);
 
     // select one of the references weighted by their occurence count
+    // using a cumulative distribution function
     unsigned cdf = 0;
     for(auto&& ref : state->second.refs) {
       cdf += ref.second.count;
@@ -103,6 +112,7 @@ private:
         return ref.first;
       }
     }
+
     throw std::logic_error(
       "unexpected random "
       + std::to_string(random)
@@ -129,6 +139,7 @@ struct Builder {
       // the final window element serves as reference to the next markov state
       auto&& value = *back;
 
+      // find/insert state
       auto state = states.find(keys);
       if(state == end(states)) {
         state = states.emplace(keys, Forger::Entry()).first;
@@ -241,7 +252,7 @@ private:
       << overall << " references\n\n";
   }
 
-  Forger::MarkovStates states;
+  Forger::MarkovStates states; ///< trained states to be passed to the forger
 };
 
 int main(int argc, char** argv) {
@@ -266,7 +277,7 @@ int main(int argc, char** argv) {
     // forge iterations based on user input
     for(;;) {
       int wordCount;
-      std::wcout << "How many words to generate? - ";
+      std::wcout << "How many words to generate? (empty for exit) - ";
 
       std::string line;
       std::getline(std::cin, line);
