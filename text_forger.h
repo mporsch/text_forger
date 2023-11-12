@@ -1,5 +1,6 @@
+#pragma once
+
 #include <cctype>
-#include <fstream>
 #include <iostream>
 #include <iterator>
 #include <map>
@@ -9,47 +10,41 @@
 #include <stdexcept>
 #include <vector>
 
-//#define DEBUG_TOKENIZE
-//#define DEBUG_TRAINING
+#include "color.h"
+#include "literal.h"
 
-// a higher chain order causes more coherent output,
-// but reduces variation
-static const unsigned markovChainOrder = 2;
+struct Token : public STRING {
+  friend OSTREAM& operator<<(OSTREAM& os, const Token& token);
+
+  Color color;
+};
+
+OSTREAM& operator<<(OSTREAM& os, const Token& token)
+{
+  os << token.color << static_cast<const STRING&>(token);
+  return os;
+}
+
+
+using Tokens = std::vector<Token>;
+
+OSTREAM& operator<<(OSTREAM& os, const Tokens& tokens)
+{
+  // concatenate tokens separated by space
+  auto sep = LITERAL("");
+  for(auto &&t : tokens) {
+    os << sep << t;
+    sep = LITERAL(" ");
+  }
+  os << Color::Reset();
+  return os;
+}
+
 
 struct Forger {
   friend struct Builder;
 
-  std::wstring generate(size_t count) const {
-    auto tokens = collect(count);
-
-    // concatenate tokens separated by space
-    return std::accumulate(
-      begin(tokens), end(tokens), std::wstring(),
-      [](std::wstring str, const std::wstring& t) -> std::wstring {
-        return str + L" " + t;
-      });
-  }
-
-private:
-  using Token = std::wstring;
-  using Tokens = std::vector<Token>;
-
-  struct Entry {
-    struct Reference {
-      unsigned count; ///< number of times this follow-up has been found in training data
-    };
-    using References = std::map<Token, Reference>;
-
-    References refs; ///< possible follow-ups of this state
-    unsigned refSum; ///< sum of follow-up occurrence counts for CDF
-  };
-  using MarkovStates = std::map<Tokens, Entry>;
-
-  Forger(MarkovStates states)
-    : states(std::move(states)) {
-  }
-
-  Tokens collect(size_t count) const {
+  Tokens operator()(size_t count) const {
     Tokens tokens;
     tokens.reserve(count);
 
@@ -64,6 +59,22 @@ private:
     }
 
     return tokens;
+  }
+
+private:
+  struct Entry {
+    struct Reference {
+      unsigned count; ///< number of times this follow-up has been found in training data
+    };
+    using References = std::map<Token, Reference>;
+
+    References refs; ///< possible follow-ups of this state
+    unsigned refSum; ///< sum of follow-up occurrence counts for CDF
+  };
+  using MarkovStates = std::map<Tokens, Entry>;
+
+  Forger(MarkovStates states)
+    : states(std::move(states)) {
   }
 
   Tokens first() const {
@@ -123,19 +134,23 @@ private:
   mutable std::default_random_engine generator;
 };
 
+
 struct Builder {
-  void train(std::wistream& is, unsigned order) {
+  void train(ISTREAM& is, unsigned order) {
     if(order < 1) {
       throw std::invalid_argument("invalid markov order");
     }
 
     // split input into separate words
     auto tokens = tokenize(is);
+    for(auto&& t : tokens)
+      t.color = Color::FromId(id);
+    ++id;
 
     // shift a window of size=order+1 over the list of tokens
     for(auto front = begin(tokens), back = front + order; back != end(tokens); ++front, ++back) {
       // the window part of size=order are the keys (markov state content)
-      auto keys = Forger::Tokens(front, back);
+      auto keys = Tokens(front, back);
       // the final window element serves as reference to the next markov state
       auto&& value = *back;
 
@@ -166,7 +181,7 @@ private:
   , Special
   };
 
-  static CharType getType(wchar_t c) {
+  static CharType getType(STRING::value_type c) {
     if(std::isspace(c)) {
       return Space;
     } else if(std::isalpha(c, std::locale())) {
@@ -178,26 +193,26 @@ private:
     }
   }
 
-  static void dump(const Forger::Tokens& tokens) {
+  static void dump(const Tokens& tokens) {
     std::cout << "Tokens:\n";
     for(auto&& t : tokens) {
-      std::wcout << L" " << t << L"\n";
+      COUT << LITERAL(" ") << t << LITERAL("\n");
     }
   }
 
-  static Forger::Tokens tokenize(std::wistream& is) {
-    Forger::Tokens tokens;
+  static Tokens tokenize(ISTREAM& is) {
+    Tokens tokens;
     tokens.reserve(999);
-    auto push = [&](Forger::Token& token) {
+    auto push = [&](Token& token) {
       if(!token.empty()) {
         tokens.push_back(std::move(token));
-        token = Forger::Token();
+        token = Token();
       }
     };
 
-    Forger::Token token;
+    Token token;
 
-    using iterator = std::istream_iterator<wchar_t, wchar_t>;
+    using iterator = std::istream_iterator<STRING::value_type, STRING::value_type>;
     for(iterator c(is); c != iterator(); ++c) {
       auto charType = getType(*c);
       if(charType == Space) {
@@ -220,14 +235,14 @@ private:
     std::cout << "Trained markov process:\n";
     for(auto&& state : states) {
       for(auto&& t : state.first) {
-        std::wcout << L" " << t;
+        COUT << LITERAL(" ") << t;
       }
       std::cout << ": ";
       for(auto&& ref : state.second.refs) {
-        std::wcout << ref.first
-          << L" (" << ref.second.count << L") ";
+        COUT << ref.first
+          << LITERAL(" (") << ref.second.count << LITERAL(") ");
       }
-      std::cout << '\n';
+      COUT << Color::Reset() << '\n';
     }
   }
 
@@ -252,45 +267,6 @@ private:
       << overall << " references\n\n";
   }
 
+  unsigned int id = 0;
   Forger::MarkovStates states; ///< trained states to be passed to the forger
 };
-
-int main(int argc, char** argv) {
-  // set global locale
-  std::setlocale(LC_ALL, "de_DE.UTF-8");
-
-  if(argc < 2) {
-    return EXIT_FAILURE;
-  } else {
-    // train word map from user input
-    Builder builder;
-    for(auto arg = argv + 1; arg < argv + argc; ++arg) {
-      std::wifstream ifs(*arg);
-      if(!ifs.is_open()) {
-        throw std::runtime_error("Failed to open " + std::string(*arg));
-      }
-      ifs >> std::noskipws;
-      builder.train(ifs, markovChainOrder);
-    }
-    auto forger = builder.get();
-
-    // forge iterations based on user input
-    for(;;) {
-      int wordCount;
-      std::wcout << "How many words to generate? (empty for exit) - ";
-
-      std::string line;
-      std::getline(std::cin, line);
-      if(line.empty()) {
-        break;
-      } else {
-        std::stringstream ss(line);
-        if (ss >> wordCount) {
-          std::wcout << '\n' << forger.generate(static_cast<size_t>(wordCount)) << "\n\n";
-        }
-      }
-    }
-
-    return EXIT_SUCCESS;
-  }
-}
