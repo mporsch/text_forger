@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cassert>
 #include <cctype>
 #include <iostream>
 #include <iterator>
@@ -62,16 +63,16 @@ struct Forger {
   }
 
 private:
-  struct Entry {
+  struct Transitions {
     struct Reference {
-      unsigned count; ///< number of times this follow-up has been found in training data
+      unsigned count = 0; ///< number of times this follow-up has been found in training data
     };
     using References = std::map<Token, Reference>;
 
     References refs; ///< possible follow-ups of this state
-    unsigned refSum; ///< sum of follow-up occurrence counts for CDF
+    unsigned refSum = 0; ///< sum of follow-up occurrence counts for CDF
   };
-  using MarkovStates = std::map<Tokens, Entry>;
+  using MarkovStates = std::map<Tokens, Transitions>;
 
   Forger(MarkovStates states)
     : states(std::move(states)) {
@@ -84,23 +85,33 @@ private:
     std::uniform_int_distribution<Diff> distribution(
       static_cast<Diff>(0),
       static_cast<Diff>(states.size()) - 1);
-    auto state = std::next(begin(states), distribution(generator));
-    auto tokens = state->first;
+    auto randomStateIndex = distribution(generator);
+    auto state = std::next(begin(states), randomStateIndex);
+    auto&& [keys, transitions] = *state;
+
+    // size=order tokens from the start state
+    Tokens tokens;
+    tokens.reserve(MARKOV_CHAIN_ORDER + 1);
+    assert(keys.size() == MARKOV_CHAIN_ORDER);
+    tokens = keys;
 
     // add a random follow-up state token
-    tokens.push_back(followUp(state));
+    tokens.push_back(followUp(transitions));
 
     return tokens;
   }
 
   Tokens next(const Tokens& curr) const {
     // find the follow-up state referenced by the last elements of size=order
-    auto keys = Tokens(std::next(begin(curr)), end(curr));
+    Tokens keys;
+    keys.reserve(MARKOV_CHAIN_ORDER + 1);
+    assert(curr.size() == MARKOV_CHAIN_ORDER + 1);
+    keys = Tokens(std::next(begin(curr)), end(curr));
     auto state = states.find(keys);
 
     if(state != end(states)) {
       // add a random follow-up state token
-      keys.push_back(followUp(state));
+      keys.push_back(followUp(state->second));
       return keys;
     } else {
       // these were the final words of an input -> start again fresh
@@ -108,26 +119,26 @@ private:
     }
   }
 
-  Token followUp(MarkovStates::const_iterator state) const {
+  Token followUp(const Transitions& transitions) const {
     std::uniform_int_distribution<unsigned> distribution(
       static_cast<unsigned>(0),
-      static_cast<unsigned>(state->second.refSum - 1));
-    auto random = distribution(generator);
+      static_cast<unsigned>(transitions.refSum - 1));
+    auto randomReferenceIndex = distribution(generator);
 
     // select one of the references weighted by their occurence count
     // using a cumulative distribution function
     unsigned cdf = 0;
-    for(auto&& ref : state->second.refs) {
+    for(auto&& ref : transitions.refs) {
       cdf += ref.second.count;
-      if(random < cdf) {
+      if(randomReferenceIndex < cdf) {
         return ref.first;
       }
     }
 
     throw std::logic_error(
       "unexpected random "
-      + std::to_string(random)
-      + " of " + std::to_string(state->second.refSum));
+      + std::to_string(randomReferenceIndex)
+      + " of " + std::to_string(transitions.refSum));
   }
 
   MarkovStates states;
@@ -136,19 +147,20 @@ private:
 
 
 struct Builder {
-  void train(ISTREAM& is, unsigned order) {
-    if(order < 1) {
+  void train(ISTREAM& is) {
+    if(MARKOV_CHAIN_ORDER < 1) {
       throw std::invalid_argument("invalid markov order");
     }
 
     // split input into separate words
     auto tokens = tokenize(is);
-    for(auto&& t : tokens)
-      t.color = Color::FromId(id);
-    ++id;
+    for(auto&& t : tokens) {
+      t.color = Color::FromId(sourceId);
+    }
+    ++sourceId;
 
     // shift a window of size=order+1 over the list of tokens
-    for(auto front = begin(tokens), back = front + order; back != end(tokens); ++front, ++back) {
+    for(auto front = begin(tokens), back = front + MARKOV_CHAIN_ORDER; back != end(tokens); ++front, ++back) {
       // the window part of size=order are the keys (markov state content)
       auto keys = Tokens(front, back);
       // the final window element serves as reference to the next markov state
@@ -157,7 +169,7 @@ struct Builder {
       // find/insert state
       auto state = states.find(keys);
       if(state == end(states)) {
-        state = states.emplace(keys, Forger::Entry()).first;
+        state = states.emplace(std::move(keys), Forger::Transitions()).first;
       }
 
       // insert reference / increment reference count
@@ -233,12 +245,12 @@ private:
 
   void dump() const {
     std::cout << "Trained markov process:\n";
-    for(auto&& state : states) {
-      for(auto&& t : state.first) {
-        COUT << LITERAL(" ") << t;
+    for(auto&& [keys, transitions] : states) {
+      for(auto&& token : keys) {
+        COUT << LITERAL(" ") << token;
       }
       std::cout << ": ";
-      for(auto&& ref : state.second.refs) {
+      for(auto&& ref : transitions.refs) {
         COUT << ref.first
           << LITERAL(" (") << ref.second.count << LITERAL(") ");
       }
@@ -248,14 +260,14 @@ private:
 
   void finalize() {
     unsigned overall = 0;
-    for(auto&& p : states) {
+    for(auto&& [_, transitions] : states) {
       auto refSum = std::accumulate(
-        begin(p.second.refs), end(p.second.refs), unsigned(0),
-        [](unsigned sum, const Forger::Entry::References::value_type& p) -> unsigned {
+        begin(transitions.refs), end(transitions.refs), unsigned(0),
+        [](unsigned sum, const Forger::Transitions::References::value_type& p) -> unsigned {
           return sum + p.second.count;
         });
-        p.second.refSum = refSum;
-        overall += refSum;
+      transitions.refSum = refSum;
+      overall += refSum;
     }
 
 #ifdef DEBUG_TRAINING
@@ -267,6 +279,6 @@ private:
       << overall << " references\n\n";
   }
 
-  unsigned int id = 0;
+  unsigned int sourceId = 0;
   Forger::MarkovStates states; ///< trained states to be passed to the forger
 };

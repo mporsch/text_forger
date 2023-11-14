@@ -24,7 +24,7 @@ int main(int argc, char** argv) {
         throw std::runtime_error("Failed to open " + std::string(*arg));
       }
       ifs >> std::noskipws;
-      builder.train(ifs, MARKOV_CHAIN_ORDER);
+      builder.train(ifs);
     }
     auto forger = builder.get();
 
