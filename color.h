@@ -35,7 +35,7 @@ public:
         return c;
     }
 
-    static Color FromId(unsigned int id) {
+    static Color FromId(size_t id) {
         static std::vector<ColorCode> const colorLut = GetColorLut();
 
         Color ret;

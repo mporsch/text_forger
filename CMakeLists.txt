@@ -4,19 +4,23 @@ project(text_forger CXX)
 
 option(DEBUG_TOKENIZE "" FALSE)
 option(DEBUG_TRAINING "" FALSE)
+option(DEBUG_REJECT "" FALSE)
 option(USE_WSTRING "" FALSE)
 option(USE_COLOR "" FALSE)
 set(MARKOV_CHAIN_ORDER 2 CACHE STRING "a higher chain order causes more coherent output but reduces variation")
 
 add_executable(text_forger
   main.cpp
+  builder.h
   color.h
+  forger.h
   literal.h
-  text_forger.h
+  rejecter.h
 )
 target_compile_definitions(text_forger PRIVATE
   $<$<BOOL:${DEBUG_TOKENIZE}>:DEBUG_TOKENIZE>
   $<$<BOOL:${DEBUG_TRAINING}>:DEBUG_TRAINING>
+  $<$<BOOL:${DEBUG_REJECT}>:DEBUG_REJECT>
   $<$<BOOL:${USE_WSTRING}>:USE_WSTRING>
   $<$<BOOL:${USE_COLOR}>:USE_COLOR>
   MARKOV_CHAIN_ORDER=${MARKOV_CHAIN_ORDER}

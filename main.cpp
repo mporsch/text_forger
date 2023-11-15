@@ -4,10 +4,11 @@
 #include <ios>
 #include <iostream>
 #include <stdexcept>
+#include <sstream>
 #include <string>
 
+#include "builder.h"
 #include "literal.h"
-#include "text_forger.h"
 
 int main(int argc, char** argv) {
   // set global locale
